@@ -1,1 +1,53 @@
-
+apiVersion: karpenter.sh/v1/nodePool
+kind: NodePool
+metadata:
+  name: gpu-mlops
+spec:
+  template:
+    metadata:
+      labels:
+        workload: ml-training-inference
+    spec:
+      requirements:
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["g"] # Targets G4dn/G5 instances (NVIDIA T4/A10G GPUs)
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: In
+          values: ["4", "5"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["spot", "on-demand"] # Prioritises low-cost Spot for AI training
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: gpu-node-class
+  limits:
+    cpu: 1000
+    memory: 4000Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    expireAfter: 720h
+---
+apiVersion: karpenter.k8s.aws/v1/ec2NodeClass
+kind: EC2NodeClass
+metadata:
+  name: gpu-node-class
+spec:
+  amiFamily: AL2023 # Uses Amazon Linux 2023 optimized for EKS with NVIDIA drivers
+  role: "${karpenter_node_role_name}"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${cluster_name}"
+  securityGroupSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/${cluster_name}: "owned"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
